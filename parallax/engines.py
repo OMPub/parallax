@@ -15,7 +15,7 @@ import urllib.request
 
 DRY_RUN = False
 TIMEOUT = 240            # CLI engines
-LOCAL_TIMEOUT = 1500     # local reasoning models are slow (~2 tok/s on a 27B)
+LOCAL_TIMEOUT = 3600     # generous for overnight fully-local runs (big token budgets)
 
 _OLLAMA_CACHE = {}
 _LOCAL_CACHE = {}
