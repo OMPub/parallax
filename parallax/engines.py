@@ -45,6 +45,31 @@ def resolve(chart, role, exclude=None):
     return avail[0]
 
 
+def call_parsed(chart, role, prompt, *, want, temperature=None, max_tokens=None, exclude=None):
+    """Try each available engine in the role's chain until one returns parseable
+    JSON of the wanted shape ("list" or "dict"). This is the resilience layer: if
+    the primary (e.g. a local reasoning model) truncates or emits no JSON, the
+    next engine (e.g. claude) takes over automatically. Returns (parsed, engine)
+    or (None, first_engine). ``exclude`` deprioritizes (but doesn't ban) an
+    engine, used so verify prefers a different model than investigate."""
+    chain = [e for e in chart.engines.get(role, []) if available(e, chart)]
+    if exclude:
+        others = [e for e in chain if e != exclude]
+        if others:
+            chain = others + [e for e in chain if e == exclude]
+    for eng in chain:
+        try:
+            raw = call(eng, prompt, chart, temperature=temperature, max_tokens=max_tokens)
+        except Exception:
+            continue
+        data = extract_json(raw)
+        if want == "list" and isinstance(data, list) and data:
+            return data, eng
+        if want == "dict" and isinstance(data, dict) and data:
+            return data, eng
+    return None, (chain[0] if chain else None)
+
+
 def call(engine, prompt, chart=None, temperature=None, max_tokens=None):
     if DRY_RUN:
         return _dry(prompt)
@@ -163,9 +188,15 @@ def _local(prompt, chart, temperature, max_tokens):
         raise RuntimeError(f"local HTTP {e.code}: {e.read().decode()[:200]}")
     except Exception as e:
         raise RuntimeError(f"local call failed: {e}")
-    msg = d["choices"][0]["message"]
+    choice = d["choices"][0]
+    msg = choice["message"]
     content = (msg.get("content") or "").strip()
-    if not content:  # reasoning model that spent its budget thinking
+    # If the model was truncated mid-reasoning (finish_reason == "length") and
+    # produced no answer, return EMPTY rather than its chain-of-thought. The raw
+    # reasoning is not an answer, and substituting it would make a failed call
+    # look successful — defeating the caller's engine fallback (e.g. -> claude).
+    # Only fall back to reasoning_content when the model actually stopped.
+    if not content and choice.get("finish_reason") != "length":
         content = (msg.get("reasoning_content") or "").strip()
     return content
 

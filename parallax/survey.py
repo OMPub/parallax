@@ -67,21 +67,11 @@ Return a JSON array of {n} objects with genuinely new angles:
     "rationale": "<why this sightline surfaces it>",
     "severity_guess": "low|medium|high|critical"}}
 Only output the JSON array."""
-    # Try each available engine in the role chain until one yields parseable
-    # hypotheses. Reasoning models sometimes spend their whole token budget
-    # thinking and emit nothing parseable — fall through rather than return empty.
     temp = executor.get("temperature", 0.9)
-    chain = [e for e in chart.engines.get("ideate", []) if engines.available(e, chart)]
-    for eng in chain:
-        try:
-            raw = engines.call(eng, prompt, chart, temperature=temp,
-                               max_tokens=getattr(chart, "local_max_tokens", 3500))
-        except Exception:
-            continue
-        data = engines.extract_json(raw)
-        if isinstance(data, list) and data:
-            return data, eng
-    return [], (chain[0] if chain else None)
+    ideas, eng = engines.call_parsed(chart, "ideate", prompt, want="list",
+                                     temperature=temp,
+                                     max_tokens=getattr(chart, "local_max_tokens", 3500))
+    return (ideas or []), eng
 
 
 def _investigate(chart, hyp):
@@ -103,11 +93,8 @@ Return ONE JSON object:
     "file": "{rel}", "line": <int line number of the sink>,
     "evidence": "<specific code reference>", "fix": "<concrete remediation>"}}
 Only output the JSON object."""
-    eng = engines.resolve(chart, "investigate")
-    if not eng:
-        return None, None
-    data = engines.extract_json(engines.call(eng, prompt, chart, temperature=0.1))
-    return (data if isinstance(data, dict) else None), eng
+    data, eng = engines.call_parsed(chart, "investigate", prompt, want="dict", temperature=0.1)
+    return data, eng
 
 
 def _grounded(finding):
@@ -135,12 +122,10 @@ skepticism.
 
 Return ONE JSON object: {{"still_holds": true|false, "reason": "<why>"}}
 Only output the JSON object."""
-    eng = engines.resolve(chart, "verify", exclude=investigate_engine)
-    if not eng:
-        return {"still_holds": True, "reason": "no verifier available"}, None
-    data = engines.extract_json(engines.call(eng, prompt, chart, temperature=0.2))
-    if not isinstance(data, dict):
-        return {"still_holds": True, "reason": "verifier returned no verdict"}, eng
+    data, eng = engines.call_parsed(chart, "verify", prompt, want="dict",
+                                    temperature=0.2, exclude=investigate_engine)
+    if not data:
+        return {"still_holds": True, "reason": "no verifier verdict"}, eng
     return data, eng
 
 

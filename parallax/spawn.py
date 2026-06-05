@@ -37,8 +37,7 @@ def _candidate_checker(chart, texts):
 
 
 def reflect(chart, record, chosen, prior, survey_id):
-    eng = engines.resolve(chart, "reflect")
-    if not eng:
+    if not [e for e in chart.engines.get("reflect", []) if engines.available(e, chart)]:
         return []
     gaps = []
     for scheme, info in record.get("taxonomy_coverage", {}).items():
@@ -71,9 +70,9 @@ Return a JSON array of up to {n}:
     "rationale": "<why novel and valuable>",
     "severity_guess": "low|medium|high|critical", "novelty": 0.0}}
 Only output the JSON array."""
-    data = engines.extract_json(engines.call(eng, prompt, chart, temperature=0.8,
-                                             max_tokens=getattr(chart, "local_max_tokens", 3500)))
-    if not isinstance(data, list):
+    data, _eng = engines.call_parsed(chart, "reflect", prompt, want="list", temperature=0.8,
+                                     max_tokens=getattr(chart, "local_max_tokens", 3500))
+    if not data:
         return []
 
     checker = _candidate_checker(chart, _existing_texts(chart) + prior)
