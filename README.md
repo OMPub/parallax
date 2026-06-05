@@ -115,3 +115,8 @@ schema/          sightline.schema.json
 tests/
 ```
 Per target repo: `.parallax/{chart.yaml, atlas/, incubator/, logbook/, findings/, surveys/}`.
+
+## License
+
+Released under [CC0 1.0 Universal](LICENSE) — a public-domain dedication. No
+rights reserved; use, modify, and redistribute freely.
