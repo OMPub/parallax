@@ -27,8 +27,19 @@ def _banner(chart):
 def cmd_survey(args):
     engines.DRY_RUN = args.dry_run
     chart = load_chart(args.path)
+    if args.engine:  # force ALL roles to one engine (e.g. fully local)
+        chart.engines = {r: [args.engine] for r in ("ideate", "investigate", "verify", "reflect")}
+    if args.max_tokens:
+        chart.local_max_tokens = args.max_tokens
+    if args.local_endpoint:
+        chart.local_endpoint = args.local_endpoint
+    if args.local_model:
+        chart.local_model = args.local_model
+    if args.embed_model:
+        chart.embed_model = args.embed_model
     from . import report, survey
-    print(f"[parallax] survey {chart.name} ({chart.target}) mode={args.mode} dry_run={args.dry_run}")
+    print(f"[parallax] survey {chart.name} ({chart.target}) mode={args.mode} "
+          f"dry_run={args.dry_run}" + (f" engine={args.engine}" if args.engine else ""))
     _banner(chart)
     rec = survey.run_survey(chart, mode=args.mode, k=args.sightlines,
                             n_ideate=args.ideate, n_investigate=args.investigate,
@@ -121,6 +132,14 @@ def main(argv=None):
     s.add_argument("--investigate", type=int, default=2)
     s.add_argument("--lens", action="append", default=None,
                    help="force a specific sightline id (repeatable)")
+    s.add_argument("--engine", choices=["claude", "codex", "local", "ollama"], default=None,
+                   help="force ALL roles to one engine (e.g. --engine local for fully local)")
+    s.add_argument("--max-tokens", type=int, default=None,
+                   help="override the local engine token budget for this run")
+    s.add_argument("--local-endpoint", default=None,
+                   help="override the local OpenAI-compatible endpoint (e.g. http://192.168.0.7:1234/v1)")
+    s.add_argument("--local-model", default=None, help="override the local chat model id")
+    s.add_argument("--embed-model", default=None, help="override the embedding model id")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(func=cmd_survey)
 
