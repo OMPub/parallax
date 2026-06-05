@@ -1,0 +1,21 @@
+---
+id: PY-SUBPROCESS-001
+title: Shell / argument injection via subprocess
+taxonomy: { cwe: [CWE-78, CWE-88], owasp: [A03] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*.py"]
+  contains_any: ["subprocess", "os.system", "shell=True", "Popen", "check_output", "check_call"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Trace externally-influenced strings into subprocess/os.system calls. Flag
+      shell=True with interpolated input, string-built command lines, and
+      argument-injection cases where a value beginning with '-' or containing
+      separators lands in an option position (including git refs, file paths, and
+      URLs). Show the source -> sink path and the injected effect.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

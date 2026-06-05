@@ -1,0 +1,21 @@
+---
+id: PY-DESERIALIZE-001
+title: Unsafe deserialization / dynamic evaluation
+taxonomy: { cwe: [CWE-502, CWE-94], owasp: [A08, A03] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*.py"]
+  contains_any: [pickle, "yaml.load", marshal, "eval(", "exec(", __reduce__, jsonpickle]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Find places where untrusted bytes/strings are turned into live Python:
+      pickle/marshal/shelve loads, yaml.load without SafeLoader, eval/exec on
+      derived input, jsonpickle, or __reduce__ gadgets. Trace whether the input
+      can be influenced by an external feed, file, or network response, and show
+      the code-execution or object-injection path.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

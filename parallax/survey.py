@@ -144,7 +144,7 @@ Only output the JSON object."""
     return data, eng
 
 
-def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2):
+def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_override=None):
     lb = Logbook(chart)
     survey_id = lb.next_survey_id()
     commit = sense.current_commit(chart.target)
@@ -161,7 +161,13 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2):
 
     # applicability + selection over lens atoms
     applicable = [(a, m) for a in lens_atoms if (m := _applies(chart, a, files, cache))]
-    chosen = selector.select([a for a, _ in applicable], lb, survey_id, k)
+    if lens_override:
+        want = set(lens_override)
+        chosen = [a for a, _ in applicable if a.id in want]
+        if not chosen:
+            chosen = selector.select([a for a, _ in applicable], lb, survey_id, k)
+    else:
+        chosen = selector.select([a for a, _ in applicable], lb, survey_id, k)
     applies_map = {a.id: m for a, m in applicable}
 
     prior = lb.prior_claims()

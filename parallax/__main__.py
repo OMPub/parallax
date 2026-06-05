@@ -31,7 +31,8 @@ def cmd_survey(args):
     print(f"[parallax] survey {chart.name} ({chart.target}) mode={args.mode} dry_run={args.dry_run}")
     _banner(chart)
     rec = survey.run_survey(chart, mode=args.mode, k=args.sightlines,
-                            n_ideate=args.ideate, n_investigate=args.investigate)
+                            n_ideate=args.ideate, n_investigate=args.investigate,
+                            lens_override=args.lens)
     path = report.write(chart, rec)
     print(f"\n[parallax] survey {rec['survey_id']:05d}: {len(rec['findings'])} confirmed, "
           f"{len(rec['hypotheses'])} hypotheses, {len(rec['skipped_duplicates'])} dupes, "
@@ -118,6 +119,8 @@ def main(argv=None):
     s.add_argument("--sightlines", type=int, default=2)
     s.add_argument("--ideate", type=int, default=4)
     s.add_argument("--investigate", type=int, default=2)
+    s.add_argument("--lens", action="append", default=None,
+                   help="force a specific sightline id (repeatable)")
     s.add_argument("--dry-run", action="store_true")
     s.set_defaults(func=cmd_survey)
 
