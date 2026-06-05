@@ -1,0 +1,20 @@
+---
+id: GEN-ARCH-001
+title: Undocumented-invariant archaeology
+taxonomy: { cwe: [CWE-20] }
+tier: lens
+maturity: proven
+applies_when:
+  path_globs: ["**/*"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 1.0
+    prompt: |
+      Ignore known bug-class checklists. Instead hunt for assumptions the code
+      relies on but never states or enforces: "this is always sorted", "this is
+      only ever called once", "this address is trusted", "inputs are
+      canonicalized upstream", "this number can't overflow here". Name each
+      unstated invariant and show concretely how violating it breaks safety.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

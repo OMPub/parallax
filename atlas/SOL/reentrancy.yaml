@@ -1,0 +1,20 @@
+---
+id: SOL-SWC107-REENTRANCY
+title: Reentrancy / external-call ordering
+taxonomy: { swc: [SWC-107], dasp: [DASP-1] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*.sol"]
+  contains_any: [".call", ".transfer", ".send", "delegatecall", "isValidSignature"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Find checks-effects-interactions violations and cross-function / read-only
+      reentrancy. Trace every external call (token transfers, callbacks, EIP-1271
+      calls into attacker contracts) and ask what state is stale or re-enterable
+      during that call, including indexers that read mid-reentrancy.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

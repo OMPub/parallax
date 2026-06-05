@@ -1,0 +1,19 @@
+---
+id: SOL-SWC115-TXORIGIN
+title: tx.origin authentication
+taxonomy: { swc: [SWC-115], dasp: [DASP-2] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*.sol"]
+  contains_any: ["tx.origin"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Find authorization or equality checks that use tx.origin instead of
+      msg.sender, which let a malicious intermediary contract impersonate the
+      originating EOA. Show the call path that exploits it.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

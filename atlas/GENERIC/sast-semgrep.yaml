@@ -1,0 +1,13 @@
+---
+id: GEN-SAST-SEMGREP
+title: Semgrep baseline ruleset
+taxonomy: { cwe: [CWE-20, CWE-89, CWE-78] }
+tier: floor
+maturity: proven
+applies_when:
+  path_globs: ["**/*"]
+executors:
+  - kind: static
+    command: [semgrep, --quiet, --error, --config, auto]
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

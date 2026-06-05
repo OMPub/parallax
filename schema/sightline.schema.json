@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "parallax sightline",
+  "type": "object",
+  "required": ["id", "tier", "maturity", "executors"],
+  "additionalProperties": true,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+    "title": { "type": "string" },
+    "taxonomy": {
+      "type": "object",
+      "properties": {
+        "swc": { "type": "array", "items": { "type": "string" } },
+        "dasp": { "type": "array", "items": { "type": "string" } },
+        "cwe": { "type": "array", "items": { "type": "string" } },
+        "owasp": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "tier": { "enum": ["floor", "lens"] },
+    "maturity": { "enum": ["candidate", "active", "proven", "dormant"] },
+    "applies_when": {
+      "type": "object",
+      "properties": {
+        "path_globs": { "type": "array", "items": { "type": "string" } },
+        "contains_any": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "executors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "properties": {
+          "kind": { "enum": ["static", "llm"] },
+          "command": { "type": "array", "items": { "type": "string" } },
+          "fallback": { "type": "string" },
+          "engine": { "type": "string" },
+          "temperature": { "type": "number" },
+          "prompt": { "type": "string" }
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "properties": {
+        "origin": { "enum": ["human", "machine"] },
+        "parent": {},
+        "rationale": { "type": "string" },
+        "novelty": { "type": ["number", "null"] }
+      }
+    },
+    "yield": { "type": "object" }
+  }
+}

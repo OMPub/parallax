@@ -1,0 +1,13 @@
+---
+id: SOL-SLITHER
+title: Slither static analysis
+taxonomy: { swc: [SWC-107, SWC-101, SWC-104] }
+tier: floor
+maturity: proven
+applies_when:
+  path_globs: ["**/*.sol"]
+executors:
+  - kind: static
+    command: [slither, ., --json, "-"]
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

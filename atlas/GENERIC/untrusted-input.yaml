@@ -1,0 +1,20 @@
+---
+id: GEN-INJECTION-001
+title: Untrusted input reaching a dangerous sink
+taxonomy: { cwe: [CWE-20, CWE-78, CWE-94], owasp: [A03] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Trace untrusted inputs (request bodies, CLI args, file contents, external
+      feeds, on-chain calldata) to dangerous sinks: shell/exec, eval/deserialize,
+      SQL/template strings, path joins, dynamic dispatch. For each, name the
+      source, the sink, and what taint-removal (if any) sits between them. Treat
+      any externally-ingested data as hostile.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }

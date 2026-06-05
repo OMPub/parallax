@@ -1,0 +1,20 @@
+---
+id: GEN-AUTHZ-001
+title: Missing or weak authorization on state-changing paths
+taxonomy: { cwe: [CWE-862, CWE-863, CWE-306], owasp: [A01] }
+tier: lens
+maturity: active
+applies_when:
+  path_globs: ["**/*"]
+executors:
+  - kind: llm
+    engine: ideate
+    temperature: 0.9
+    prompt: |
+      Enumerate every state-changing entry point and ask: who may call it, and
+      what proof is required? Look for endpoints/functions missing an auth check,
+      privileged roles that exceed the documented threat model, initialization
+      that can be front-run, and checks that authenticate identity but not
+      authorization for the specific action.
+lineage: { origin: human, parent: null }
+yield: { runs: 0, confirmed: 0, refuted: 0 }
