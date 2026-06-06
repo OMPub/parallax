@@ -45,14 +45,20 @@ def resolve(chart, role, exclude=None):
     return avail[0]
 
 
-def call_parsed(chart, role, prompt, *, want, temperature=None, max_tokens=None, exclude=None):
+def call_parsed(chart, role, prompt, *, want, temperature=None, max_tokens=None,
+                exclude=None, prefer=None):
     """Try each available engine in the role's chain until one returns parseable
     JSON of the wanted shape ("list" or "dict"). This is the resilience layer: if
     the primary (e.g. a local reasoning model) truncates or emits no JSON, the
-    next engine (e.g. claude) takes over automatically. Returns (parsed, engine)
-    or (None, first_engine). ``exclude`` deprioritizes (but doesn't ban) an
-    engine, used so verify prefers a different model than investigate."""
+    next engine takes over automatically. Returns (parsed, engine) or
+    (None, first_engine).
+
+    ``prefer`` moves an engine to the FRONT (used to rotate the ideate engine for
+    cross-model diversity); ``exclude`` moves one to the BACK (so verify prefers a
+    different model than investigate). Both keep every engine reachable as fallback."""
     chain = [e for e in chart.engines.get(role, []) if available(e, chart)]
+    if prefer and prefer in chain:
+        chain = [prefer] + [e for e in chain if e != prefer]
     if exclude:
         others = [e for e in chain if e != exclude]
         if others:

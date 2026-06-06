@@ -49,6 +49,16 @@ class Logbook:
         st["last_commit"] = commit
         _write(self.state_path, st)
 
+    def next_rotation(self, key="ideate"):
+        """Persistent round-robin counter (advances across surveys/restarts) so
+        the ideate engine rotates evenly over time."""
+        st = self.state()
+        field = f"{key}_rotation"
+        i = int(st.get(field, 0))
+        st[field] = i + 1
+        _write(self.state_path, st)
+        return i
+
     # hypotheses
     def hypotheses(self):
         if not self.hyp_path.exists():

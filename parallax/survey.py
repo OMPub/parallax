@@ -47,7 +47,7 @@ def _build_checker(chart, prior):
                            cos_threshold=chart.embed_threshold)
 
 
-def _ideate(chart, atom, executor, files, prior, n):
+def _ideate(chart, atom, executor, files, prior, n, prefer=None):
     listing = "\n".join(f"- {f}" for f in files[:40]) or "(no applicable files)"
     digest = "\n".join(f"- {c}" for c in prior[:60]) or "(none yet)"
     prompt = f"""### PARALLAX ROLE: IDEATE
@@ -69,7 +69,7 @@ Return a JSON array of {n} objects with genuinely new angles:
 Only output the JSON array."""
     temp = executor.get("temperature", 0.9)
     ideas, eng = engines.call_parsed(chart, "ideate", prompt, want="list",
-                                     temperature=temp,
+                                     temperature=temp, prefer=prefer,
                                      max_tokens=getattr(chart, "local_max_tokens", 3500))
     return (ideas or []), eng
 
@@ -157,10 +157,15 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
 
     prior = lb.prior_claims()
     checker = _build_checker(chart, prior)
+    # Cross-model diversity: rotate the ideate engine across the available pool
+    # (claude / codex / local-MM2.7). Different model families surface different
+    # bug classes — the model-level version of "don't walk the same pathway".
+    ideate_pool = [e for e in chart.engines.get("ideate", []) if engines.available(e, chart)]
     record = {
         "survey_id": survey_id, "mode": mode, "basis": basis, "commit": commit,
         "files_considered": len(files), "novelty_mode": checker.mode,
         "chosen_sightlines": [a.id for a in chosen],
+        "ideate_pool": ideate_pool,
         "taxonomy_coverage": taxonomy.summary(chart, atoms),
         "floor": floor_results, "hypotheses": [], "findings": [],
         "skipped_duplicates": [], "spawned": [],
@@ -170,7 +175,8 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
         atom_files = applies_map.get(atom.id, files)
         confirmed = refuted = explored = 0
         for executor in atom.llm_executors():
-            ideas, ideate_eng = _ideate(chart, atom, executor, atom_files, prior, n_ideate)
+            prefer = ideate_pool[lb.next_rotation("ideate") % len(ideate_pool)] if ideate_pool else None
+            ideas, ideate_eng = _ideate(chart, atom, executor, atom_files, prior, n_ideate, prefer=prefer)
             valid = [(h, (h.get("claim") or "").strip()) for h in ideas]
             valid = [(h, c) for h, c in valid if c]
             vecs = None
@@ -210,7 +216,8 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
                     "survey_id": survey_id, "sightline": atom.id, "claim": claim,
                     "file": hyp.get("file"), "outcome": outcome, "commit": commit,
                     "ideate_engine": ideate_eng})
-                record["hypotheses"].append({"claim": claim, "outcome": outcome, "sightline": atom.id})
+                record["hypotheses"].append({"claim": claim, "outcome": outcome,
+                                             "sightline": atom.id, "engine": ideate_eng})
                 if hyp.get("file"):
                     lb.update_coverage(hyp["file"], survey_id, commit, atom.id)
         lb.record_yield(atom.id, survey_id, confirmed=confirmed, refuted=refuted, explored=explored)

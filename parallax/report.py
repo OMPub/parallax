@@ -47,10 +47,16 @@ def render(chart, rec):
     a("")
 
     a("## Exploration this survey")
+    a(f"- ideate engine pool (rotated): {', '.join(rec.get('ideate_pool', [])) or 'n/a'}")
+    mix = {}
+    for h in rec["hypotheses"]:
+        mix[h.get("engine")] = mix.get(h.get("engine"), 0) + 1
+    if mix:
+        a(f"- ideate engine mix: {', '.join(f'{k}={v}' for k, v in sorted(mix.items(), key=lambda x: str(x[0])))}")
     a(f"- hypotheses tried: {len(rec['hypotheses'])}")
     a(f"- skipped as duplicates: {len(rec['skipped_duplicates'])}")
     for h in rec["hypotheses"]:
-        a(f"  - [{h['outcome']}] ({h['sightline']}) {h['claim']}")
+        a(f"  - [{h['outcome']}] ({h.get('engine')}) ({h['sightline']}) {h['claim']}")
     a("")
 
     a(f"## Spawned candidate sightlines ({len(rec['spawned'])})")
