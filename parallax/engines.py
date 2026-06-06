@@ -65,17 +65,24 @@ def call_parsed(chart, role, prompt, *, want, temperature=None, max_tokens=None,
         others = [e for e in chain if e != exclude]
         if others:
             chain = others + [e for e in chain if e == exclude]
+    # The trace records WHY each engine attempt went as it did, so the survey can
+    # tell an operational failure (engine error / truncation / unparsable) apart
+    # from a genuine null result (model parsed cleanly but found nothing).
+    trace = []
     for eng in chain:
         try:
             raw = call(eng, prompt, chart, temperature=temperature, max_tokens=max_tokens)
-        except Exception:
+        except Exception as e:
+            trace.append({"engine": eng, "status": "error", "detail": str(e)[:140]})
             continue
         data = extract_json(raw)
-        if want == "list" and isinstance(data, list) and data:
-            return data, eng
-        if want == "dict" and isinstance(data, dict) and data:
-            return data, eng
-    return None, (chain[0] if chain else None)
+        if (want == "list" and isinstance(data, list) and data) or \
+           (want == "dict" and isinstance(data, dict) and data):
+            trace.append({"engine": eng, "status": "ok"})
+            return data, eng, trace
+        trace.append({"engine": eng,
+                      "status": "empty" if isinstance(data, (list, dict)) else "unparsable"})
+    return None, (chain[0] if chain else None), trace
 
 
 def call(engine, prompt, chart=None, temperature=None, max_tokens=None):
@@ -241,12 +248,13 @@ def _local(prompt, chart, temperature, max_tokens):
     choice = d["choices"][0]
     msg = choice["message"]
     content = (msg.get("content") or "").strip()
-    # If the model was truncated mid-reasoning (finish_reason == "length") and
-    # produced no answer, return EMPTY rather than its chain-of-thought. The raw
-    # reasoning is not an answer, and substituting it would make a failed call
-    # look successful — defeating the caller's engine fallback (e.g. -> claude).
-    # Only fall back to reasoning_content when the model actually stopped.
-    if not content and choice.get("finish_reason") != "length":
+    if not content:
+        # Truncated mid-reasoning with no answer: raise so it's recorded as an
+        # operational failure (and triggers fallback) — the raw chain-of-thought
+        # is not an answer, and the harness should learn to raise the cap, not
+        # blame the sightline. Only use reasoning_content if the model truly stopped.
+        if choice.get("finish_reason") == "length":
+            raise RuntimeError("truncated: finish_reason=length (raise local.max_tokens)")
         content = (msg.get("reasoning_content") or "").strip()
     return content
 

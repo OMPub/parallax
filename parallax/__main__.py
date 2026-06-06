@@ -109,6 +109,12 @@ def cmd_atlas(args):
             print(f"[candidate     ] {sl.id:28s} {sl.title}")
 
 
+def cmd_introspect(args):
+    chart = load_chart(args.path)
+    from . import introspect
+    print(introspect.render(chart, introspect.gather(chart)))
+
+
 def cmd_promote(args):
     chart = load_chart(args.path)
     promoted = []
@@ -161,6 +167,10 @@ def main(argv=None):
     al.add_argument("action", choices=["list", "validate"])
     al.add_argument("path")
     al.set_defaults(func=cmd_atlas)
+
+    intr = sub.add_parser("introspect", help="meta-review: operational health + recommendations")
+    intr.add_argument("path")
+    intr.set_defaults(func=cmd_introspect)
 
     pr = sub.add_parser("promote")
     pr.add_argument("path")

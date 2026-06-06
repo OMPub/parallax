@@ -99,6 +99,17 @@ class Logbook:
         s["last_survey"] = survey_id
         _write(self.yield_path, y)
 
+    def record_operational(self, sid, survey_id, reasons):
+        """An operational abort (engine error/truncation), NOT a low-yield run.
+        Deliberately does NOT touch runs/confirmed/last_survey — so the bandit's
+        quality signal stays clean and the sightline remains re-armed for retry.
+        Tracked separately so introspection can see (and heal) the failure."""
+        y = self.yields()
+        s = y.setdefault(sid, {"runs": 0, "confirmed": 0, "refuted": 0, "explored": 0, "last_survey": 0})
+        s["operational_aborts"] = s.get("operational_aborts", 0) + 1
+        s["last_operational"] = {"survey": survey_id, "reasons": reasons}
+        _write(self.yield_path, y)
+
     # coverage
     def coverage(self):
         return _read(self.coverage_path, {})

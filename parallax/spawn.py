@@ -70,8 +70,8 @@ Return a JSON array of up to {n}:
     "rationale": "<why novel and valuable>",
     "severity_guess": "low|medium|high|critical", "novelty": 0.0}}
 Only output the JSON array."""
-    data, _eng = engines.call_parsed(chart, "reflect", prompt, want="list", temperature=0.8,
-                                     max_tokens=getattr(chart, "local_max_tokens", 3500))
+    data, _eng, _tr = engines.call_parsed(chart, "reflect", prompt, want="list", temperature=0.8,
+                                          max_tokens=getattr(chart, "local_max_tokens", 3500))
     if not data:
         return []
 

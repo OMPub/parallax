@@ -68,10 +68,10 @@ Return a JSON array of {n} objects with genuinely new angles:
     "severity_guess": "low|medium|high|critical"}}
 Only output the JSON array."""
     temp = executor.get("temperature", 0.9)
-    ideas, eng = engines.call_parsed(chart, "ideate", prompt, want="list",
-                                     temperature=temp, prefer=prefer,
-                                     max_tokens=getattr(chart, "local_max_tokens", 3500))
-    return (ideas or []), eng
+    ideas, eng, trace = engines.call_parsed(chart, "ideate", prompt, want="list",
+                                            temperature=temp, prefer=prefer,
+                                            max_tokens=getattr(chart, "local_max_tokens", 3500))
+    return (ideas or []), eng, trace
 
 
 def _investigate(chart, hyp):
@@ -93,7 +93,7 @@ Return ONE JSON object:
     "file": "{rel}", "line": <int line number of the sink>,
     "evidence": "<specific code reference>", "fix": "<concrete remediation>"}}
 Only output the JSON object."""
-    data, eng = engines.call_parsed(chart, "investigate", prompt, want="dict", temperature=0.1)
+    data, eng, _ = engines.call_parsed(chart, "investigate", prompt, want="dict", temperature=0.1)
     return data, eng
 
 
@@ -122,8 +122,8 @@ skepticism.
 
 Return ONE JSON object: {{"still_holds": true|false, "reason": "<why>"}}
 Only output the JSON object."""
-    data, eng = engines.call_parsed(chart, "verify", prompt, want="dict",
-                                    temperature=0.2, exclude=investigate_engine)
+    data, eng, _ = engines.call_parsed(chart, "verify", prompt, want="dict",
+                                       temperature=0.2, exclude=investigate_engine)
     if not data:
         return {"still_holds": True, "reason": "no verifier verdict"}, eng
     return data, eng
@@ -169,14 +169,17 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
         "taxonomy_coverage": taxonomy.summary(chart, atoms),
         "floor": floor_results, "hypotheses": [], "findings": [],
         "skipped_duplicates": [], "spawned": [],
+        "operational_aborts": [], "engine_trace": [],
     }
 
     for atom in chosen:
         atom_files = applies_map.get(atom.id, files)
         confirmed = refuted = explored = 0
+        atom_traces = []  # one ideate trace per executor — for operational classification
         for executor in atom.llm_executors():
             prefer = ideate_pool[lb.next_rotation("ideate") % len(ideate_pool)] if ideate_pool else None
-            ideas, ideate_eng = _ideate(chart, atom, executor, atom_files, prior, n_ideate, prefer=prefer)
+            ideas, ideate_eng, trace = _ideate(chart, atom, executor, atom_files, prior, n_ideate, prefer=prefer)
+            atom_traces.append(trace)
             valid = [(h, (h.get("claim") or "").strip()) for h in ideas]
             valid = [(h, c) for h, c in valid if c]
             vecs = None
@@ -220,7 +223,19 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
                                              "sightline": atom.id, "engine": ideate_eng})
                 if hyp.get("file"):
                     lb.update_coverage(hyp["file"], survey_id, commit, atom.id)
-        lb.record_yield(atom.id, survey_id, confirmed=confirmed, refuted=refuted, explored=explored)
+        # Operational abort = the sightline explored nothing AND no ideate engine
+        # ever returned a usable result (all errored/truncated/unparsable). That's
+        # a HARNESS failure, not a low-yield lens — so don't penalize the bandit;
+        # record it separately and leave the sightline re-armed for a fair retry.
+        produced_usable = any(t.get("status") in ("ok", "empty") for tr in atom_traces for t in tr)
+        if explored == 0 and atom_traces and not produced_usable:
+            reasons = sorted({t.get("status") for tr in atom_traces for t in tr})
+            record["operational_aborts"].append({"sightline": atom.id, "reasons": reasons,
+                                                  "traces": atom_traces})
+            lb.record_operational(atom.id, survey_id, reasons)
+        else:
+            lb.record_yield(atom.id, survey_id, confirmed=confirmed, refuted=refuted, explored=explored)
+        record["engine_trace"].extend({"sightline": atom.id, **t} for tr in atom_traces for t in tr)
 
     # REFLECT — spawn candidate sightlines into the incubator
     record["spawned"] = spawn.reflect(chart, record, chosen, prior, survey_id)
