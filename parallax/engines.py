@@ -8,8 +8,10 @@ role's ordered preference list and returns the first available engine.
 """
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 import urllib.error
 import urllib.request
 
@@ -113,7 +115,23 @@ def _claude(prompt, chart):
 
 
 def _codex(prompt):
-    return _run(["codex", "exec", prompt])
+    """codex `exec` is an agentic runner (gpt-5.x), not a plain completion. Run it
+    non-interactively, sandboxed READ-ONLY (a scanner must never let the agent
+    modify the repo), and capture only the agent's final message via
+    --output-last-message — that's the clean answer, separate from streamed logs."""
+    fd, outfile = tempfile.mkstemp(prefix="parallax-codex-", suffix=".txt")
+    os.close(fd)
+    try:
+        _run(["codex", "exec", "--skip-git-repo-check", "--ephemeral",
+              "--color", "never", "--sandbox", "read-only",
+              "-o", outfile, prompt], stdin="")
+        with open(outfile, "r", errors="ignore") as fh:
+            return fh.read()
+    finally:
+        try:
+            os.unlink(outfile)
+        except OSError:
+            pass
 
 
 def _ollama(prompt, chart):
