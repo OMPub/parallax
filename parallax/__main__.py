@@ -22,6 +22,11 @@ def _banner(chart):
     print(f"[parallax] engines: {', '.join(avail) or 'NONE (use --dry-run)'}")
     if engines.available("local", chart):
         print(f"[parallax] local: {chart.local_endpoint} model={engines.local_chat_model(chart)}")
+    elif any("local" in chain for chain in chart.engines.values()):
+        # local is configured but unreachable — say so loudly, don't drop it silently.
+        print(f"[parallax] WARNING: local endpoint {chart.local_endpoint} unreachable "
+              f"({engines.local_probe_error(chart) or 'unknown'}); "
+              f"ideate rotation + fallback will use claude/codex only this run")
 
 
 def cmd_survey(args):

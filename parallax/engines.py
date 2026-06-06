@@ -166,16 +166,22 @@ def _local_probe(chart):
     ep = _local_endpoint(chart)
     if ep in _LOCAL_CACHE:
         return _LOCAL_CACHE[ep]
-    info = {"ok": False, "models": []}
+    info = {"ok": False, "models": [], "error": None}
     try:
         with urllib.request.urlopen(ep + "/models", timeout=4) as r:
             data = json.loads(r.read().decode())
         info["models"] = [m.get("id") for m in data.get("data", []) if m.get("id")]
         info["ok"] = True
-    except Exception:
-        pass
+    except Exception as e:
+        info["error"] = f"{type(e).__name__}: {e}"
     _LOCAL_CACHE[ep] = info
     return info
+
+
+def local_probe_error(chart):
+    """Why the local endpoint is unreachable (or None if reachable). Surfaced so
+    overnight runs never silently drop the local model without explanation."""
+    return _local_probe(chart).get("error")
 
 
 def local_chat_model(chart):
