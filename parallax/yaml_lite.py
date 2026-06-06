@@ -205,8 +205,10 @@ class _Reader:
                 items.append(self.block_scalar(indent, strip_trailing=(after == "|-")))
             elif after[0] in "{[":
                 items.append(_parse_flow(after))
-            elif ":" in after and after[0] not in "\"'":
-                # "- key: val" — a map whose first key sits on the dash line.
+            elif (": " in after or after.rstrip().endswith(":")) and after[0] not in "\"'":
+                # "- key: val" — a map whose first key sits on the dash line. A
+                # colon only starts a mapping when followed by space/end-of-line,
+                # so a bare scalar like "http://host:1234/v1" stays a scalar.
                 k, _, v = after.partition(":")
                 m = {str(_scalar(k)): self._value_from_inline(v, content_indent)}
                 m.update(self.parse_map(content_indent))

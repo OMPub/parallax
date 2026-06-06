@@ -21,7 +21,8 @@ def _banner(chart):
     avail = [e for e in ("claude", "codex", "ollama", "local") if engines.available(e, chart)]
     print(f"[parallax] engines: {', '.join(avail) or 'NONE (use --dry-run)'}")
     if engines.available("local", chart):
-        print(f"[parallax] local: {chart.local_endpoint} model={engines.local_chat_model(chart)}")
+        active = engines._active_local(chart).get("endpoint")
+        print(f"[parallax] local: {active} model={engines.local_chat_model(chart)}")
     elif any("local" in chain for chain in chart.engines.values()):
         # local is configured but unreachable — say so loudly, don't drop it silently.
         print(f"[parallax] WARNING: local endpoint {chart.local_endpoint} unreachable "

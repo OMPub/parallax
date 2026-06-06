@@ -46,7 +46,11 @@ class Chart:
         self.claude_model = d.get("claude_model")
         self.ollama_model = d.get("ollama_model")
         local = d.get("local") or {}
-        self.local_endpoint = local.get("endpoint", "http://127.0.0.1:1234/v1")
+        # Single endpoint or an ordered list tried in turn (e.g. Tailscale then
+        # LAN) so local survives either path dropping.
+        self.local_endpoints = local.get("endpoints") or None
+        self.local_endpoint = local.get("endpoint") or (
+            self.local_endpoints[0] if self.local_endpoints else "http://127.0.0.1:1234/v1")
         self.local_model = local.get("model")
         self.local_max_tokens = int(local.get("max_tokens", 3500))
         self.local_temperature = float(local.get("temperature", 0.7))

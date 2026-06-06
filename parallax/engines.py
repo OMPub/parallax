@@ -158,15 +158,17 @@ def ollama_model(chart=None):
 
 
 # --- local OpenAI-compatible server (LM Studio / llama.cpp / ollama /v1) -----
-def _local_endpoint(chart):
-    return getattr(chart, "local_endpoint", None) or "http://127.0.0.1:1234/v1"
+def _local_endpoints(chart):
+    eps = getattr(chart, "local_endpoints", None)
+    if eps:
+        return list(eps)
+    return [getattr(chart, "local_endpoint", None) or "http://127.0.0.1:1234/v1"]
 
 
-def _local_probe(chart):
-    ep = _local_endpoint(chart)
+def _probe_endpoint(ep):
     if ep in _LOCAL_CACHE:
         return _LOCAL_CACHE[ep]
-    info = {"ok": False, "models": [], "error": None}
+    info = {"ok": False, "models": [], "error": None, "endpoint": ep}
     try:
         with urllib.request.urlopen(ep + "/models", timeout=4) as r:
             data = json.loads(r.read().decode())
@@ -176,6 +178,23 @@ def _local_probe(chart):
         info["error"] = f"{type(e).__name__}: {e}"
     _LOCAL_CACHE[ep] = info
     return info
+
+
+def _active_local(chart):
+    """Probe the configured local endpoints in order; return the first reachable
+    one's info (so a Tailscale/LAN pair survives either path dropping). If none
+    are reachable, return the last probe (carrying its error)."""
+    last = None
+    for ep in _local_endpoints(chart):
+        info = _probe_endpoint(ep)
+        if info["ok"]:
+            return info
+        last = info
+    return last or {"ok": False, "models": [], "error": "no local endpoints configured", "endpoint": None}
+
+
+def _local_probe(chart):
+    return _active_local(chart)
 
 
 def local_probe_error(chart):
@@ -202,7 +221,8 @@ def _post_json(url, payload, timeout):
 
 
 def _local(prompt, chart, temperature, max_tokens):
-    ep = _local_endpoint(chart)
+    active = _active_local(chart)
+    ep = active.get("endpoint") or _local_endpoints(chart)[0]
     model = local_chat_model(chart)
     if not model:
         raise RuntimeError("no local chat model available")
@@ -233,9 +253,10 @@ def _local(prompt, chart, temperature, max_tokens):
 
 def embed(texts, chart):
     """Embedding vectors for texts via the local server, or None if unavailable."""
-    if not _local_probe(chart)["ok"]:
+    active = _active_local(chart)
+    if not active["ok"]:
         return None
-    ep = _local_endpoint(chart)
+    ep = active["endpoint"]
     model = getattr(chart, "embed_model", None) or "text-embedding-nomic-embed-text-v1.5"
     try:
         d = _post_json(ep + "/embeddings", {"model": model, "input": texts}, 120)
