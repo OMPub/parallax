@@ -112,7 +112,7 @@ def cmd_atlas(args):
 def cmd_introspect(args):
     chart = load_chart(args.path)
     from . import introspect
-    res = introspect.run(chart, act=args.act)
+    res = introspect.run(chart, act=args.act, contribute=args.contribute)
     print(introspect.render(chart, res))
 
 
@@ -173,7 +173,9 @@ def main(argv=None):
                           help="LLM meta-review of parallax's own runs; triage + (with --act) fix/PR")
     intr.add_argument("path")
     intr.add_argument("--act", action="store_true",
-                      help="apply safe config fixes automatically and open PRs for the rest")
+                      help="LOCAL only: auto-apply whitelisted config fixes + write local proposals")
+    intr.add_argument("--contribute", action="store_true",
+                      help="opt-in: file SANITIZED, engine-scope issues upstream as draft PRs")
     intr.set_defaults(func=cmd_introspect)
 
     pr = sub.add_parser("promote")

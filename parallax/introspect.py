@@ -125,10 +125,16 @@ def diagnose(chart, evidence):
         "failures must never be mistaken for low scan quality.\n\n"
         "## Recent run telemetry\n" + json.dumps(ev, indent=2) + "\n\n"
         "## Current tunable config\n" + json.dumps(_config_snapshot(chart), indent=2) + "\n\n"
+        "Classify each issue's SCOPE:\n"
+        " - 'local'  = specific to THIS deployment's config/environment (fix on this machine).\n"
+        " - 'engine' = a GENERALIZABLE defect in parallax itself that would affect any user\n"
+        "   (a candidate to contribute upstream). For 'engine' issues, write title/evidence/\n"
+        "   explanation GENERICALLY about harness behavior — never name this target repo, its\n"
+        "   files, paths, or any scanned code/findings (that stays private).\n\n"
         "Return ONE JSON object:\n"
         '{"issues":[{"title":"short","evidence":"the signals that show it",'
-        '"operational":true,"severity":"low|medium|high","complexity":"trivial|simple|complex",'
-        '"fix_kind":"config|code|human",'
+        '"operational":true,"scope":"local|engine","severity":"low|medium|high",'
+        '"complexity":"trivial|simple|complex","fix_kind":"config|code|human",'
         '"config_change":{"key":"local.max_tokens","to":<value>} or null,'
         '"explanation":"why / what / how — enough for a repo owner to act"}]}\n'
         'Return {"issues":[]} if runs look healthy. Do not invent problems. '
@@ -186,31 +192,66 @@ def apply_config_fix(chart, cc):
     return True, f"{cc['key']} -> {value}"
 
 
-def _proposal_md(chart, issue):
+def _sanitize(chart, text):
+    """Strip target-identifying info from anything destined for a PUBLIC upstream
+    PR — repo name, absolute target path, and user home dirs. Defense in depth on
+    top of the model being told to phrase engine-scope issues generically."""
+    if not text:
+        return text
+    text = text.replace(str(chart.target), "<target>")
+    if chart.name:
+        text = re.sub(re.escape(chart.name), "<target>", text)
+    text = re.sub(r"/Users/[^/\s]+", "/Users/<user>", text)
+    text = re.sub(r"/home/[^/\s]+", "/home/<user>", text)
+    return text
+
+
+def _local_proposal_md(chart, issue):
     return (f"# [parallax introspect] {issue.get('title')}\n\n"
-            f"_Auto-filed by `parallax introspect` after reviewing **{chart.name}** runs._\n\n"
-            f"- **severity:** {issue.get('severity')}\n"
-            f"- **complexity:** {issue.get('complexity')}\n"
-            f"- **fix kind:** {issue.get('fix_kind')}\n"
-            f"- **operational (not scan-quality):** {issue.get('operational')}\n\n"
+            f"_Local proposal for **{chart.name}** — stays on this machine; review and act._\n\n"
+            f"- severity: {issue.get('severity')} | complexity: {issue.get('complexity')} | "
+            f"scope: {issue.get('scope')} | fix: {issue.get('fix_kind')}\n\n"
             f"## Evidence\n{issue.get('evidence')}\n\n"
-            f"## Why / what / how\n{issue.get('explanation')}\n\n"
-            f"---\ncc @brook (repo owner) — review and merge or close.\n")
+            f"## Why / what / how\n{issue.get('explanation')}\n")
+
+
+def _contribution_md(chart, issue):
+    """Sanitized, target-agnostic body for an UPSTREAM PR to the shared engine."""
+    return _sanitize(chart,
+                     f"# [parallax introspect] {issue.get('title')}\n\n"
+                     f"_Auto-surfaced by `parallax introspect` running against a (private) target; "
+                     f"filed as a generalizable harness issue. No target details included._\n\n"
+                     f"- severity: {issue.get('severity')} | complexity: {issue.get('complexity')} | "
+                     f"fix: {issue.get('fix_kind')}\n\n"
+                     f"## Symptom (harness behavior)\n{issue.get('evidence')}\n\n"
+                     f"## Why / what / how\n{issue.get('explanation')}\n\n"
+                     f"---\nFiled by a parallax deployment's self-introspection. Review and merge or close.\n")
+
+
+def _write_local_proposal(chart, issue):
+    d = chart.dir / "proposals"
+    d.mkdir(exist_ok=True)
+    slug = (re.sub(r"[^a-z0-9]+", "-", (issue.get("title") or "issue").lower()).strip("-")[:40] or "issue")
+    path = d / f"{slug}.md"
+    path.write_text(_local_proposal_md(chart, issue))
+    return str(path.relative_to(chart.target))
 
 
 def open_pr(chart, issue):
-    root = chart.generic_atlas.parent  # parallax engine repo root
+    """Open a SANITIZED, target-agnostic PR upstream. Opt-in only (see run()).
+    Falls back to the GitHub fork-PR flow for users without push to the engine repo."""
+    root = chart.generic_atlas.parent
 
     def g(*a):
         return subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True)
 
     if g("status", "--porcelain").stdout.strip():
-        return {"ok": False, "detail": "engine repo has uncommitted changes; skipped auto-PR"}
+        return {"ok": False, "detail": "engine repo has uncommitted changes; skipped"}
     orig = g("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "main"
     h = hashlib.sha1((issue.get("title") or "issue").encode()).hexdigest()[:8]
     slug = (re.sub(r"[^a-z0-9]+", "-", (issue.get("title") or "issue").lower()).strip("-")[:40] or "issue")
     branch = f"introspect/{slug}-{h}"
-    body = _proposal_md(chart, issue)
+    body = _contribution_md(chart, issue)
     propdir = root / "proposals"
     propdir.mkdir(exist_ok=True)
     (propdir / f"{slug}-{h}.md").write_text(body)
@@ -218,34 +259,50 @@ def open_pr(chart, issue):
         g("checkout", orig)
         return {"ok": False, "detail": f"could not create branch {branch}"}
     g("add", "proposals")
-    g("commit", "-m", f"introspect: {issue.get('title')}")
+    g("commit", "-m", f"introspect: {_sanitize(chart, issue.get('title') or 'issue')}")
     g("push", "-u", "origin", branch)
     pr = subprocess.run(["gh", "pr", "create", "--repo", REPO, "--head", branch, "--base", orig,
-                         "--title", f"[introspect] {issue.get('title')}", "--body", body, "--draft"],
-                        capture_output=True, text=True)
+                         "--title", f"[introspect] {_sanitize(chart, issue.get('title') or 'issue')}",
+                         "--body", body, "--draft"], capture_output=True, text=True)
     g("checkout", orig)
     return {"ok": pr.returncode == 0, "detail": (pr.stdout or pr.stderr).strip()}
 
 
-def run(chart, act=False):
+def run(chart, act=False, contribute=False):
+    """Diagnose, triage, and (optionally) act. Defaults are SAFE:
+      - report only unless --act.
+      - --act stays LOCAL: auto-apply whitelisted config; write local proposals.
+        Nothing leaves the machine.
+      - --contribute is the explicit opt-in to file SANITIZED, engine-scope issues
+        upstream — never on by default, because run telemetry can carry private
+        target details."""
     evidence = gather(chart)
     issues, eng = diagnose(chart, evidence)
     actions = []
     for issue in issues:
         decision = triage(issue)
-        result = "reported"
-        if act and decision == "auto":
-            ok, msg = apply_config_fix(chart, issue.get("config_change"))
-            result = f"AUTO-APPLIED {msg}" if ok else f"auto-apply failed: {msg}"
-        elif act and decision == "pr":
-            pr = open_pr(chart, issue)
-            result = f"PR {'opened' if pr['ok'] else 'FAILED'}: {pr['detail']}"
-        elif decision == "auto":
-            result = f"would auto-apply {issue.get('config_change')}"
+        scope = issue.get("scope", "local")
+        results = []
+        # LOCAL — safe, on this machine only
+        if decision == "auto":
+            if act:
+                ok, msg = apply_config_fix(chart, issue.get("config_change"))
+                results.append(f"auto-applied {msg}" if ok else f"auto-apply failed: {msg}")
+            else:
+                results.append(f"would auto-apply {issue.get('config_change')}")
         else:
-            result = "would open PR"
-        actions.append({"issue": issue, "decision": decision, "result": result})
-    return {"evidence": evidence, "engine": eng, "issues": issues, "actions": actions, "acted": act}
+            results.append(f"local proposal written: {_write_local_proposal(chart, issue)}"
+                           if act else "would write local proposal")
+        # UPSTREAM — opt-in, engine-scope only, sanitized
+        if scope == "engine":
+            if contribute:
+                pr = open_pr(chart, issue)
+                results.append(f"upstream PR {'opened' if pr['ok'] else 'FAILED'}: {pr['detail']}")
+            else:
+                results.append("eligible to contribute upstream (rerun with --contribute)")
+        actions.append({"issue": issue, "decision": decision, "scope": scope, "results": results})
+    return {"evidence": evidence, "engine": eng, "issues": issues, "actions": actions,
+            "acted": act, "contributed": contribute}
 
 
 # --- deterministic fallback / extra signal ----------------------------------
@@ -280,19 +337,22 @@ def render(chart, res):
     g = res["evidence"]
     L = [f"# parallax introspection — {chart.name}",
          f"_diagnosis engine: {res.get('engine') or 'deterministic-fallback'}; "
-         f"acted: {res.get('acted')}_", "",
+         f"acted: {res.get('acted')}; contributed: {res.get('contributed')}_", "",
          f"- surveys analyzed: {g['surveys']}  |  hypotheses: {g['total_hypotheses']} "
          f"({g['dedup_rate']*100:.0f}% deduped)  |  incubator: {g['incubator']}",
          "- engine attempts: " + (", ".join(
              f"{e}({sum(s.values())})" for e, s in g["engine_status"].items()) or "none yet"),
          "", f"## Issues ({len(res['issues'])})"]
     if not res["issues"]:
-        L.append("_none_")
+        L.append("_none — runs look healthy_")
     for a in res["actions"]:
         i = a["issue"]
         L.append("")
-        L.append(f"### [{i.get('severity', '?').upper()}/{i.get('complexity', '?')}] {i.get('title')}")
-        L.append(f"- triage: **{a['decision']}** → {a['result']}")
+        L.append(f"### [{i.get('severity', '?').upper()}/{i.get('complexity', '?')}/"
+                 f"{a.get('scope', 'local')}] {i.get('title')}")
+        L.append(f"- triage: **{a['decision']}**")
+        for r in a["results"]:
+            L.append(f"  - {r}")
         L.append(f"- evidence: {i.get('evidence')}")
         L.append(f"- fix ({i.get('fix_kind')}): {i.get('explanation')}")
     return "\n".join(L) + "\n"
