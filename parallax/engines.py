@@ -254,7 +254,7 @@ def _local(prompt, chart, temperature, max_tokens):
         # is not an answer, and the harness should learn to raise the cap, not
         # blame the sightline. Only use reasoning_content if the model truly stopped.
         if choice.get("finish_reason") == "length":
-            raise RuntimeError("truncated: finish_reason=length (raise local.max_tokens)")
+            raise RuntimeError("truncated: finish_reason=length")
         content = (msg.get("reasoning_content") or "").strip()
     return content
 

@@ -59,8 +59,12 @@ def gather(chart):
 def recommend(chart, g):
     recs = []
     if g["truncations"]:
-        recs.append(f"Local model truncated {g['truncations']}x (finish_reason=length). "
-                    f"Raise local.max_tokens (currently {getattr(chart, 'local_max_tokens', '?')}).")
+        cap = getattr(chart, "local_max_tokens", 0)
+        if cap and cap < 16384:
+            recs.append(f"Local truncated {g['truncations']}x at a low cap ({cap}) — raise local.max_tokens.")
+        else:
+            recs.append(f"Local truncated {g['truncations']}x despite an ample cap ({cap}); a rare reasoning "
+                        f"spiral, already absorbed by the engine fallback — no action needed.")
     for eng, st in g["engine_status"].items():
         total = sum(st.values())
         errs = st.get("error", 0) + st.get("unparsable", 0)
