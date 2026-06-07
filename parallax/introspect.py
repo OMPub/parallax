@@ -34,6 +34,17 @@ SAFE_CONFIG = {
     "spawn.per_survey": ("per_survey", 0, 10, int),
 }
 REPO = "OMPub/parallax"
+CONSENT_FILE = Path.home() / ".parallax" / "contribute-consent"
+
+
+def _has_consent():
+    return CONSENT_FILE.exists()
+
+
+def _grant_consent():
+    CONSENT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    CONSENT_FILE.write_text("Consented to file sanitized, engine-scope issues upstream to "
+                            + REPO + " as draft PRs.\n")
 
 
 # --- evidence ---------------------------------------------------------------
@@ -237,47 +248,136 @@ def _write_local_proposal(chart, issue):
     return str(path.relative_to(chart.target))
 
 
-def open_pr(chart, issue):
-    """Open a SANITIZED, target-agnostic PR upstream. Opt-in only (see run()).
-    Falls back to the GitHub fork-PR flow for users without push to the engine repo."""
+def _open_issues():
+    r = subprocess.run(["gh", "issue", "list", "--repo", REPO, "--state", "open",
+                        "--limit", "60", "--json", "number,title,body"],
+                       capture_output=True, text=True)
+    try:
+        return json.loads(r.stdout) if r.returncode == 0 else []
+    except Exception:
+        return []
+
+
+def _engine_source(chart, budget=70000):
+    pkg = chart.generic_atlas.parent / "parallax"
+    parts, total = [], 0
+    for f in sorted(pkg.glob("*.py")):
+        try:
+            t = f.read_text()[:9000]
+        except Exception:
+            continue
+        if total + len(t) > budget:
+            break
+        parts.append(f"### FILE: parallax/{f.name}\n{t}")
+        total += len(t)
+    return "\n\n".join(parts)
+
+
+def contribute_issue(chart, issue):
+    """LLM-driven upstream contribution: dedup against open issues (+1 if a match),
+    else open a new draft PR — including a patch when the model judges the fix
+    concrete and non-obvious. Everything sanitized; everything a DRAFT for review."""
+    issues = _open_issues()
+    listing = "\n".join(f"#{i['number']}: {i['title']}" for i in issues) or "(none open)"
+    safe = {k: _sanitize(chart, str(issue.get(k))) for k in ("title", "evidence", "explanation", "fix_kind")}
+    prompt = (
+        "### PARALLAX ROLE: CONTRIBUTE (file a generalizable harness issue upstream)\n"
+        "A parallax deployment found a likely GENERIC engine issue. First, decide if it duplicates\n"
+        "an OPEN issue below — if so, '+1' it with this deployment's corroborating evidence rather\n"
+        "than opening a duplicate. Otherwise propose a NEW issue; and IF (and only if) you are\n"
+        "confident in a concrete, non-obvious fix, include a patch as the FULL new contents of the\n"
+        "file(s) to change. Never include the private target's name, paths, or scanned code.\n\n"
+        "## The issue\n" + json.dumps(safe, indent=2) + "\n\n"
+        "## Open issues on " + REPO + "\n" + listing + "\n\n"
+        "## Engine source (only if drafting a patch)\n" + _engine_source(chart) + "\n\n"
+        "Return ONE JSON object:\n"
+        '{"decision":"match|new","match_number":<int or null>,'
+        '"comment":"<+1 corroboration, if match>",'
+        '"title":"<title, if new>","body":"<why/what/how, if new>",'
+        '"changes":[{"path":"parallax/<file>.py","new_content":"<full file>"}]}\n'
+        "Use changes=[] unless the fix is concrete and non-obvious. Only output the JSON object."
+    )
+    data, _eng = _diagnose_call(chart, prompt)
+    if not data:
+        return {"ok": False, "detail": "no engine available to draft contribution"}
+    if data.get("decision") == "match" and data.get("match_number"):
+        body = _sanitize(chart, data.get("comment") or "+1 — another parallax deployment hit this.")
+        r = subprocess.run(["gh", "issue", "comment", str(data["match_number"]), "--repo", REPO,
+                            "--body", body], capture_output=True, text=True)
+        return {"ok": r.returncode == 0, "detail": f"+1 on #{data['match_number']}"}
+    return _open_new(chart, issue, data)
+
+
+def _open_new(chart, issue, data):
     root = chart.generic_atlas.parent
 
     def g(*a):
         return subprocess.run(["git", "-C", str(root), *a], capture_output=True, text=True)
 
     if g("status", "--porcelain").stdout.strip():
-        return {"ok": False, "detail": "engine repo has uncommitted changes; skipped"}
+        return {"ok": False, "detail": "engine repo dirty; skipped (commit/stash first)"}
     orig = g("rev-parse", "--abbrev-ref", "HEAD").stdout.strip() or "main"
-    h = hashlib.sha1((issue.get("title") or "issue").encode()).hexdigest()[:8]
-    slug = (re.sub(r"[^a-z0-9]+", "-", (issue.get("title") or "issue").lower()).strip("-")[:40] or "issue")
+    title = _sanitize(chart, data.get("title") or issue.get("title") or "issue")
+    h = hashlib.sha1(title.encode()).hexdigest()[:8]
+    slug = (re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40] or "issue")
     branch = f"introspect/{slug}-{h}"
-    body = _contribution_md(chart, issue)
-    propdir = root / "proposals"
-    propdir.mkdir(exist_ok=True)
-    (propdir / f"{slug}-{h}.md").write_text(body)
     if g("checkout", "-b", branch).returncode != 0:
         g("checkout", orig)
-        return {"ok": False, "detail": f"could not create branch {branch}"}
-    g("add", "proposals")
-    g("commit", "-m", f"introspect: {_sanitize(chart, issue.get('title') or 'issue')}")
+        return {"ok": False, "detail": f"branch {branch} already exists"}
+
+    # Apply a proposed patch only if every changed file is in-package AND compiles.
+    patched = []
+    changes = data.get("changes") or []
+    for ch in changes:
+        p = root / ch.get("path", "")
+        nc = ch.get("new_content") or ""
+        if not ch.get("path", "").startswith("parallax/") or not p.exists() or not nc:
+            patched = []
+            break
+        try:
+            compile(nc, ch["path"], "exec")
+        except Exception:
+            patched = []  # bad/unsafe patch -> fall back to proposal-only
+            break
+        p.write_text(nc)
+        patched.append(ch["path"])
+
+    body = _sanitize(chart, data.get("body") or _contribution_md(chart, issue))
+    if patched:
+        body += "\n\n_Draft patch touches: " + ", ".join(patched) + " — review before merge._\n"
+        g("add", "-A")
+    else:
+        g("checkout", "--", ".")  # discard any partial writes
+        propdir = root / "proposals"
+        propdir.mkdir(exist_ok=True)
+        (propdir / f"{slug}-{h}.md").write_text(body)
+        g("add", "proposals")
+    g("commit", "-m", f"introspect: {title}")
     g("push", "-u", "origin", branch)
     pr = subprocess.run(["gh", "pr", "create", "--repo", REPO, "--head", branch, "--base", orig,
-                         "--title", f"[introspect] {_sanitize(chart, issue.get('title') or 'issue')}",
-                         "--body", body, "--draft"], capture_output=True, text=True)
+                         "--title", f"[introspect] {title}", "--body", body, "--draft"],
+                        capture_output=True, text=True)
     g("checkout", orig)
-    return {"ok": pr.returncode == 0, "detail": (pr.stdout or pr.stderr).strip()}
+    return {"ok": pr.returncode == 0, "detail": (pr.stdout or pr.stderr).strip(),
+            "patched": patched}
 
 
-def run(chart, act=False, contribute=False):
+def run(chart, act=False, contribute=False, yes=False):
     """Diagnose, triage, and (optionally) act. Defaults are SAFE:
       - report only unless --act.
       - --act stays LOCAL: auto-apply whitelisted config; write local proposals.
         Nothing leaves the machine.
-      - --contribute is the explicit opt-in to file SANITIZED, engine-scope issues
-        upstream — never on by default, because run telemetry can carry private
-        target details."""
+      - --contribute files SANITIZED, engine-scope issues upstream (dedup-aware:
+        +1 an open issue if it matches, else a draft PR with an optional patch).
+        Gated by a one-time human consent (--yes) since telemetry can carry
+        private target details."""
     evidence = gather(chart)
     issues, eng = diagnose(chart, evidence)
+    consented = _has_consent()
+    if contribute and not consented and yes:
+        _grant_consent()
+        consented = True
+    can_contribute = contribute and consented
     actions = []
     for issue in issues:
         decision = triage(issue)
@@ -293,16 +393,18 @@ def run(chart, act=False, contribute=False):
         else:
             results.append(f"local proposal written: {_write_local_proposal(chart, issue)}"
                            if act else "would write local proposal")
-        # UPSTREAM — opt-in, engine-scope only, sanitized
+        # UPSTREAM — opt-in + one-time consent; engine-scope only; sanitized; dedup-aware
         if scope == "engine":
-            if contribute:
-                pr = open_pr(chart, issue)
-                results.append(f"upstream PR {'opened' if pr['ok'] else 'FAILED'}: {pr['detail']}")
+            if can_contribute:
+                r = contribute_issue(chart, issue)
+                results.append(f"upstream {'OK' if r['ok'] else 'FAILED'}: {r['detail']}")
+            elif contribute and not consented:
+                results.append("upstream needs one-time consent: rerun with `--contribute --yes`")
             else:
                 results.append("eligible to contribute upstream (rerun with --contribute)")
         actions.append({"issue": issue, "decision": decision, "scope": scope, "results": results})
     return {"evidence": evidence, "engine": eng, "issues": issues, "actions": actions,
-            "acted": act, "contributed": contribute}
+            "acted": act, "contributed": can_contribute}
 
 
 # --- deterministic fallback / extra signal ----------------------------------

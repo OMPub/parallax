@@ -112,7 +112,7 @@ def cmd_atlas(args):
 def cmd_introspect(args):
     chart = load_chart(args.path)
     from . import introspect
-    res = introspect.run(chart, act=args.act, contribute=args.contribute)
+    res = introspect.run(chart, act=args.act, contribute=args.contribute, yes=args.yes)
     print(introspect.render(chart, res))
 
 
@@ -175,7 +175,9 @@ def main(argv=None):
     intr.add_argument("--act", action="store_true",
                       help="LOCAL only: auto-apply whitelisted config fixes + write local proposals")
     intr.add_argument("--contribute", action="store_true",
-                      help="opt-in: file SANITIZED, engine-scope issues upstream as draft PRs")
+                      help="opt-in: file SANITIZED, engine-scope issues upstream (dedup-aware, draft PRs)")
+    intr.add_argument("--yes", action="store_true",
+                      help="grant the one-time consent to contribute upstream")
     intr.set_defaults(func=cmd_introspect)
 
     pr = sub.add_parser("promote")
