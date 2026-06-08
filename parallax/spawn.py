@@ -1,16 +1,30 @@
-"""REFLECT — emit candidate sightlines into the incubator.
+"""REFLECT + the auto-trial lifecycle.
 
-After a survey, a meta-agent proposes new probes aimed at uncovered taxonomy
-classes and angles not yet tried. Candidates are:
+After a survey, a meta-agent proposes new probes (lenses). Each is:
   * gated for novelty against the existing atlas + the logbook (no near-dupes)
   * always kind: llm (machines never author runnable shell commands — security)
-  * written as maturity: candidate, lineage.origin: machine
+  * lineage.origin: machine
 
-Promotion (candidate -> active) is a separate, gated step (see __main__ promote).
+Lifecycle (repo-local, no human in the loop):
+  * If the chart sets spawn.auto_promote, a novel + schema-valid candidate is
+    promoted straight to `active` (entering the bandit on the next survey) up to a
+    bounded trial population; otherwise it waits in the incubator for `promote`.
+  * retire_dead_weight() later demotes machine lenses that proved unproductive
+    (many runs, 0 confirmed) to `dormant`, freeing trial slots.
+The human gate is reserved for UPSTREAM contribution, not local exploration.
 """
 
 from . import engines, novelty, yaml_lite
-from .sightline import load_dir
+from .sightline import Sightline, load_dir, validate
+
+# Bound on auto-promoted (machine-origin) active lenses per repo, so the trial
+# population stays lean; retirement frees slots as dead-weight lenses go dormant.
+MAX_ACTIVE_MACHINE = 24
+
+
+def _active_machine_count(chart):
+    return sum(1 for sl in load_dir(chart.atlas_dir)
+               if sl.origin == "machine" and sl.maturity == "active")
 
 
 def _lang_globs(chart):
@@ -76,6 +90,8 @@ Only output the JSON array."""
         return []
 
     checker = _candidate_checker(chart, _existing_texts(chart) + prior)
+    auto = getattr(chart, "spawn_auto_promote", False)
+    slots = max(0, MAX_ACTIVE_MACHINE - _active_machine_count(chart)) if auto else 0
     spawned = []
     for i, cand in enumerate(data[:n]):
         title = (cand.get("title") or "").strip()
@@ -87,12 +103,15 @@ Only output the JSON array."""
             continue
         checker.add(key)
         sid = f"{chart.lang_dir or 'GEN'}-CAND-{survey_id:03d}-{i:02d}"
+        # Auto-trial: promote straight to active (repo-local) when enabled and a
+        # trial slot is free; else it waits in the incubator for `promote`.
+        promote = auto and slots > 0
         sl = {
             "id": sid,
             "title": title,
             "taxonomy": cand.get("taxonomy", {}) or {},
             "tier": "lens",
-            "maturity": "candidate",
+            "maturity": "active" if promote else "candidate",
             "applies_when": {"path_globs": _lang_globs(chart)},
             "executors": [{"kind": "llm", "engine": "ideate", "temperature": 0.9, "prompt": frame}],
             "lineage": {"origin": "machine", "parent": [a.id for a in chosen],
@@ -100,8 +119,33 @@ Only output the JSON array."""
                         "novelty": cand.get("novelty")},
             "yield": {"runs": 0, "confirmed": 0, "refuted": 0},
         }
-        path = chart.incubator_dir / f"{sid}.yaml"
+        # Never promote something that fails schema or the machine-llm-only rule.
+        if promote and validate(Sightline(sl)):
+            promote = False
+            sl["maturity"] = "candidate"
+        path = (chart.atlas_dir if promote else chart.incubator_dir) / f"{sid}.yaml"
         path.write_text(yaml_lite.dump(sl) + "\n")
-        spawned.append({"id": sid, "title": title,
+        if promote:
+            slots -= 1
+        spawned.append({"id": sid, "title": title, "maturity": sl["maturity"],
                         "path": str(path.relative_to(chart.target))})
     return spawned
+
+
+def retire_dead_weight(chart, logbook, min_runs=6):
+    """Demote machine-origin active lenses that have proven unproductive
+    (>= min_runs with 0 confirmed and 0 operational aborts) to 'dormant', freeing
+    trial slots. Human-authored baseline atoms are never auto-retired — the bandit
+    down-weights those via yield. Dormant atoms stay on disk, never deleted."""
+    y = logbook.yields()
+    retired = []
+    for sl in load_dir(chart.atlas_dir):
+        if sl.origin != "machine" or sl.maturity != "active":
+            continue
+        s = y.get(sl.id, {})
+        if s.get("runs", 0) >= min_runs and s.get("confirmed", 0) == 0 \
+                and s.get("operational_aborts", 0) == 0:
+            sl.data["maturity"] = "dormant"
+            sl.path.write_text(yaml_lite.dump(sl.data) + "\n")
+            retired.append(sl.id)
+    return retired

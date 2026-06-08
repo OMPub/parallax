@@ -59,11 +59,20 @@ def render(chart, rec):
         a(f"  - [{h['outcome']}] ({h.get('engine')}) ({h['sightline']}) {h['claim']}")
     a("")
 
-    a(f"## Spawned candidate sightlines ({len(rec['spawned'])})")
-    if not rec["spawned"]:
+    spawned = rec.get("spawned", [])
+    promoted = [s for s in spawned if s.get("maturity") == "active"]
+    a(f"## New lenses ({len(spawned)} — {len(promoted)} auto-trialed, "
+      f"{len(spawned) - len(promoted)} incubated)")
+    if not spawned:
         a("_none spawned_")
-    for s in rec["spawned"]:
-        a(f"- `{s['id']}` — {s['title']}  →  `{s['path']}`")
+    for s in spawned:
+        tag = "active" if s.get("maturity") == "active" else "candidate"
+        a(f"- [{tag}] `{s['id']}` — {s['title']}")
+    if rec.get("retired"):
+        a("")
+        a(f"## Retired lenses ({len(rec['retired'])} → dormant; unproductive machine lenses)")
+        for rid in rec["retired"]:
+            a(f"- `{rid}`")
     a("")
     return "\n".join(L)
 

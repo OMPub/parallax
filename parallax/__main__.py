@@ -51,9 +51,11 @@ def cmd_survey(args):
                             n_ideate=args.ideate, n_investigate=args.investigate,
                             lens_override=args.lens)
     path = report.write(chart, rec)
+    promoted = sum(1 for s in rec.get("spawned", []) if s.get("maturity") == "active")
     print(f"\n[parallax] survey {rec['survey_id']:05d}: {len(rec['findings'])} confirmed, "
           f"{len(rec['hypotheses'])} hypotheses, {len(rec['skipped_duplicates'])} dupes, "
-          f"{len(rec['spawned'])} candidates spawned")
+          f"{len(rec['spawned'])} new lenses ({promoted} auto-trialed), "
+          f"{len(rec.get('retired', []))} retired")
     print(f"[parallax] report: {path}")
 
 
@@ -118,10 +120,15 @@ def cmd_introspect(args):
 
 def cmd_promote(args):
     chart = load_chart(args.path)
+    from . import spawn
+    free = max(0, spawn.MAX_ACTIVE_MACHINE - spawn._active_machine_count(chart))
+    limit = args.limit if args.limit is not None else free  # default: fill to the trial cap
     promoted = []
     for sl in load_dir(chart.incubator_dir):
         if args.id and sl.id != args.id:
             continue
+        if not args.id and len(promoted) >= limit:
+            break
         errs = validate(sl)
         if errs:
             print(f"skip {sl.id}: {errs}")
@@ -130,7 +137,8 @@ def cmd_promote(args):
         (chart.atlas_dir / f"{sl.id}.yaml").write_text(yaml_lite.dump(sl.data) + "\n")
         sl.path.unlink()
         promoted.append(sl.id)
-    print(f"promoted: {', '.join(promoted) or '(none)'}")
+    print(f"promoted {len(promoted)} (trial cap {spawn.MAX_ACTIVE_MACHINE}, {free} slots were free): "
+          f"{', '.join(promoted) or '(none)'}")
 
 
 def main(argv=None):
@@ -183,6 +191,8 @@ def main(argv=None):
     pr = sub.add_parser("promote")
     pr.add_argument("path")
     pr.add_argument("--id", default=None)
+    pr.add_argument("--limit", type=int, default=None,
+                    help="max candidates to promote (default: fill to the trial cap)")
     pr.set_defaults(func=cmd_promote)
 
     args = p.parse_args(argv)

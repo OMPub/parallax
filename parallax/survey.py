@@ -168,7 +168,7 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
         "ideate_pool": ideate_pool,
         "taxonomy_coverage": taxonomy.summary(chart, atoms),
         "floor": floor_results, "hypotheses": [], "findings": [],
-        "skipped_duplicates": [], "spawned": [],
+        "skipped_duplicates": [], "spawned": [], "retired": [],
         "operational_aborts": [], "engine_trace": [],
     }
 
@@ -237,8 +237,10 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
             lb.record_yield(atom.id, survey_id, confirmed=confirmed, refuted=refuted, explored=explored)
         record["engine_trace"].extend({"sightline": atom.id, **t} for tr in atom_traces for t in tr)
 
-    # REFLECT — spawn candidate sightlines into the incubator
+    # REFLECT — propose new lenses (auto-trialed into the rotation if the chart
+    # enables it), then retire machine lenses that have proven unproductive.
     record["spawned"] = spawn.reflect(chart, record, chosen, prior, survey_id)
+    record["retired"] = spawn.retire_dead_weight(chart, lb)
 
     lb.set_last_commit(commit)
     lb.write_survey(survey_id, record)
