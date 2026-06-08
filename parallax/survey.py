@@ -6,11 +6,31 @@
         → RECORD → REFLECT (spawn candidate sightlines)
 """
 
+import re
 from pathlib import Path
 
 from . import engines, novelty, selector, sense, spawn, static_exec, taxonomy
 from .memory import Logbook
 from .sightline import load_atlas
+
+# A "claim" that asserts the model couldn't find/establish anything (or that the
+# code wasn't available) is a non-finding, not a hypothesis — it must never become
+# a confirmed finding. Conservative patterns targeting meta-refusals only.
+_VACUOUS = re.compile(
+    r"no concrete (new )?\w*\s*hypothesis"
+    r"|(hypothesis|vulnerabilit\w+|defect|exploit) (could|can) ?not be (established|determined|identified)"
+    r"|no (concrete |specific )?(vulnerabilit\w+|defect|issue|finding|exploit)s? "
+    r"(was |were |could be |can be )?(found|identified|established|determined|present)"
+    r"|not applicable to (this|the)"
+    r"|files? (are |is )?(absent|missing|unavailable|not present|not available)"
+    r"|absent from the (analy[sz]ed )?(checkout|repository|repo|codebase|tree)"
+    r"|unable to (establish|identify|find) (a |any )?(concrete |specific )?(hypothesis|vulnerabilit\w+|defect)",
+    re.I)
+
+
+def _is_vacuous(text):
+    t = (text or "").strip()
+    return not t or bool(_VACUOUS.search(t))
 
 
 def _read_file(chart, rel):
@@ -97,13 +117,17 @@ Only output the JSON object."""
     return data, eng
 
 
-def _grounded(finding):
-    """FP control: a confirmed finding must point at a concrete line with evidence."""
+def _grounded(finding, claim=""):
+    """FP control: a confirmed finding must point at a concrete line with concrete
+    evidence, AND neither the claim nor the evidence may be a vacuous non-finding
+    ("no concrete hypothesis", "files absent", etc.)."""
     try:
         line = int(finding.get("line", 0))
     except Exception:
         line = 0
-    return line > 0 and bool(str(finding.get("evidence", "")).strip())
+    evidence = str(finding.get("evidence", "")).strip()
+    return (line > 0 and bool(evidence)
+            and not _is_vacuous(claim) and not _is_vacuous(evidence))
 
 
 def _verify(chart, hyp, finding, investigate_engine):
@@ -181,7 +205,7 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
             ideas, ideate_eng, trace = _ideate(chart, atom, executor, atom_files, prior, n_ideate, prefer=prefer)
             atom_traces.append(trace)
             valid = [(h, (h.get("claim") or "").strip()) for h in ideas]
-            valid = [(h, c) for h, c in valid if c]
+            valid = [(h, c) for h, c in valid if c and not _is_vacuous(c)]
             vecs = None
             if checker.mode == "embeddings" and valid:
                 vecs = engines.embed([c for _, c in valid], chart)
@@ -197,7 +221,7 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
                 outcome = "explored"
                 if explored <= n_investigate:
                     finding, inv_eng = _investigate(chart, hyp)
-                    if finding and finding.get("verdict") == "confirmed" and _grounded(finding):
+                    if finding and finding.get("verdict") == "confirmed" and _grounded(finding, claim):
                         vres, ver_eng = _verify(chart, hyp, finding, inv_eng)
                         if vres.get("still_holds"):
                             outcome = "confirmed"

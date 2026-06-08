@@ -63,7 +63,7 @@ def gather(chart):
     lb = Logbook(chart)
     engine_status, truncations = {}, 0
     total_hyp = total_dups = 0
-    aborts, outcomes = [], {}
+    aborts, outcomes, findings = [], {}, []
     for s in surveys:
         for t in s.get("engine_trace", []):
             es = engine_status.setdefault(t.get("engine"), {})
@@ -78,6 +78,10 @@ def gather(chart):
         for a in s.get("operational_aborts", []):
             aborts.append({"survey": s.get("survey_id"), "sightline": a.get("sightline"),
                            "reasons": a.get("reasons"), "traces": a.get("traces")})
+        for f in s.get("findings", []):  # so introspect can vet finding QUALITY (catch FPs)
+            findings.append({"sightline": f.get("sightline"), "severity": f.get("severity"),
+                             "claim": (f.get("claim") or "")[:300],
+                             "evidence": (f.get("evidence") or "")[:200]})
     return {
         "surveys": len(surveys),
         "engine_status": engine_status,
@@ -87,6 +91,7 @@ def gather(chart):
         "dedup_rate": round(total_dups / (total_hyp + total_dups), 2) if (total_hyp + total_dups) else 0.0,
         "outcome_counts": outcomes,
         "operational_aborts": aborts,
+        "confirmed_findings": findings,
         "incubator": len(load_dir(chart.incubator_dir)),
         "yields": lb.yields(),
     }
@@ -133,7 +138,11 @@ def diagnose(chart, evidence):
         "(engine errors, rate limits, unreachable endpoints, unparsable output, novelty\n"
         "saturation) but ALSO infer NOVEL/unexpected problems from the raw signals — we\n"
         "push novel approaches and will hit failures no checklist anticipates. Operational\n"
-        "failures must never be mistaken for low scan quality.\n\n"
+        "failures must never be mistaken for low scan quality.\n"
+        "Also vet `confirmed_findings` for QUALITY: flag any that are vacuous, merely restate\n"
+        "a code line, or don't assert a concrete exploitable defect (e.g. 'no hypothesis could\n"
+        "be established') — that's a false positive escaping the finding gate (a scan-quality\n"
+        "issue, fix_kind=code, scope=engine).\n\n"
         "## Recent run telemetry\n" + json.dumps(ev, indent=2) + "\n\n"
         "## Current tunable config\n" + json.dumps(_config_snapshot(chart), indent=2) + "\n\n"
         "Classify each issue's SCOPE:\n"
