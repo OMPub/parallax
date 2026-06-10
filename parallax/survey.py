@@ -174,9 +174,11 @@ def run_survey(chart, mode="diff", k=2, n_ideate=4, n_investigate=2, lens_overri
         want = set(lens_override)
         chosen = [a for a, _ in applicable if a.id in want]
         if not chosen:
-            chosen = selector.select([a for a, _ in applicable], lb, survey_id, k)
+            chosen = selector.select([a for a, _ in applicable], lb, survey_id, k,
+                                     trial_min=chart.spawn_trial_min)
     else:
-        chosen = selector.select([a for a, _ in applicable], lb, survey_id, k)
+        chosen = selector.select([a for a, _ in applicable], lb, survey_id, k,
+                                 trial_min=chart.spawn_trial_min)
     applies_map = {a.id: m for a, m in applicable}
 
     prior = lb.prior_claims()

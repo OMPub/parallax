@@ -121,7 +121,7 @@ def cmd_introspect(args):
 def cmd_promote(args):
     chart = load_chart(args.path)
     from . import spawn
-    free = max(0, spawn.MAX_ACTIVE_MACHINE - spawn._active_machine_count(chart))
+    free = max(0, chart.spawn_max_active - spawn._active_machine_count(chart))
     limit = args.limit if args.limit is not None else free  # default: fill to the trial cap
     promoted = []
     for sl in load_dir(chart.incubator_dir):
@@ -137,7 +137,7 @@ def cmd_promote(args):
         (chart.atlas_dir / f"{sl.id}.yaml").write_text(yaml_lite.dump(sl.data) + "\n")
         sl.path.unlink()
         promoted.append(sl.id)
-    print(f"promoted {len(promoted)} (trial cap {spawn.MAX_ACTIVE_MACHINE}, {free} slots were free): "
+    print(f"promoted {len(promoted)} (trial cap {chart.spawn_max_active}, {free} slots were free): "
           f"{', '.join(promoted) or '(none)'}")
 
 

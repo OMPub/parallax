@@ -62,8 +62,11 @@ class Chart:
         self.jaccard_threshold = float(nov.get("jaccard_threshold", 0.6))
 
         spawn = d.get("spawn") or {}
-        self.spawn_per_survey = int(spawn.get("per_survey", 3))
+        self.spawn_per_survey = int(spawn.get("per_survey", 2))
         self.spawn_auto_promote = bool(spawn.get("auto_promote", False))
+        self.spawn_max_active = int(spawn.get("max_active", 24))       # cap on trial-pool size
+        self.spawn_trial_min = int(spawn.get("trial_min", 3))          # guaranteed shots per new lens
+        self.spawn_retire_after = int(spawn.get("retire_after", 4))    # runs w/ 0 confirmed -> dormant
 
         self.taxonomies = d.get("taxonomies", ["cwe", "owasp"])
 

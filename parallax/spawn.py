@@ -17,8 +17,8 @@ The human gate is reserved for UPSTREAM contribution, not local exploration.
 from . import engines, novelty, yaml_lite
 from .sightline import Sightline, load_dir, validate
 
-# Bound on auto-promoted (machine-origin) active lenses per repo, so the trial
-# population stays lean; retirement frees slots as dead-weight lenses go dormant.
+# Default bound on auto-promoted (machine-origin) active lenses per repo (chart
+# may override via spawn.max_active); retirement frees slots as duds go dormant.
 MAX_ACTIVE_MACHINE = 24
 
 
@@ -91,7 +91,8 @@ Only output the JSON array."""
 
     checker = _candidate_checker(chart, _existing_texts(chart) + prior)
     auto = getattr(chart, "spawn_auto_promote", False)
-    slots = max(0, MAX_ACTIVE_MACHINE - _active_machine_count(chart)) if auto else 0
+    cap = getattr(chart, "spawn_max_active", MAX_ACTIVE_MACHINE)
+    slots = max(0, cap - _active_machine_count(chart)) if auto else 0
     spawned = []
     for i, cand in enumerate(data[:n]):
         title = (cand.get("title") or "").strip()
@@ -132,11 +133,13 @@ Only output the JSON array."""
     return spawned
 
 
-def retire_dead_weight(chart, logbook, min_runs=6):
+def retire_dead_weight(chart, logbook):
     """Demote machine-origin active lenses that have proven unproductive
-    (>= min_runs with 0 confirmed and 0 operational aborts) to 'dormant', freeing
-    trial slots. Human-authored baseline atoms are never auto-retired — the bandit
-    down-weights those via yield. Dormant atoms stay on disk, never deleted."""
+    (>= spawn.retire_after runs with 0 confirmed and 0 operational aborts) to
+    'dormant', freeing trial slots. Human-authored baseline atoms are never
+    auto-retired — the bandit down-weights those via yield. Dormant atoms stay on
+    disk, never deleted."""
+    min_runs = getattr(chart, "spawn_retire_after", 6)
     y = logbook.yields()
     retired = []
     for sl in load_dir(chart.atlas_dir):

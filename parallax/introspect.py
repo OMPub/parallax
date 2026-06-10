@@ -86,7 +86,9 @@ def gather(chart):
         "surveys": len(surveys),
         "engine_status": engine_status,
         "truncations": truncations,
-        "total_hypotheses": total_hyp,
+        "total_hypotheses_kept": total_hyp,   # post-dedup (== outcome_counts sum)
+        "total_hypotheses": total_hyp,        # kept; retained for back-compat
+        "total_hypotheses_raw": total_hyp + total_dups,  # pre-dedup (kept + deduped)
         "total_deduped": total_dups,
         "dedup_rate": round(total_dups / (total_hyp + total_dups), 2) if (total_hyp + total_dups) else 0.0,
         "outcome_counts": outcomes,
